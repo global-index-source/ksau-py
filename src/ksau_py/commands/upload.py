@@ -14,12 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 from collections.abc import Callable
 from pathlib import Path
 
 import click
 from aiohttp import ClientSession
 from anyio import open_file
+from quickxorhash import quickxorhash
 from rich.progress import Progress
 
 from ksau_py import REMOTES, app, console, coro
@@ -60,7 +62,7 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int 
                 progress.update(task, completed=value)
 
             # Upload file
-            await upload_file_in_chunks(file_path, upload_url, chunk_size, update_progress)
+            quickxor_upload = await upload_file_in_chunks(file_path, upload_url, chunk_size, update_progress)
 
         # Calculate and display download info
         base_url = token.base_url.rstrip("/")
@@ -68,6 +70,7 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int 
         download_url = f"{base_url}/{download_path}"
 
         console.print("\n[green]✓ Upload completed successfully![/green]")
+        console.print(f"[cyan]✓ QuickXorHash: [/cyan][bold]{quickxor_upload!s}[/bold]")
         console.print("\n[bold]Download Information:[/bold]")
         console.print(f"[yellow]URL:[/yellow] {download_url}")
 
@@ -76,17 +79,18 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int 
         raise click.Abort from e
 
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        console.print(f"[red]Error: {(e)}[/red]")
         raise click.Abort from e
 
 
 async def upload_file_in_chunks(
     file_path: str, upload_url: str, chunk_size_mb: int = 5, on_progress: Callable | None = None
-) -> None:
+) -> bytes:
     """Upload file in chunks to the specified upload URL."""
     chunk_size = chunk_size_mb * 1024 * 1024
     file_size = Path(file_path).stat().st_size
     uploaded = 0
+    hash_ = quickxorhash()
 
     async with ClientSession() as session, await open_file(file_path, "rb") as f:
         while chunk := await f.read(chunk_size):
@@ -101,8 +105,11 @@ async def upload_file_in_chunks(
                     error_text = await response.text()
                     msg = f"Failed to upload chunk {content_range}, status: {response.status}, error: {error_text}"
                     raise click.Abort(msg)
+                hash_.update(chunk)
 
                 uploaded = chunk_end
                 if on_progress:
                     progress = (uploaded / file_size) * 100
                     on_progress(round(progress))
+
+    return base64.b64encode(hash_.digest())
