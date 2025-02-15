@@ -25,7 +25,12 @@ from rich.progress import Progress
 from rich import print as rprint
 
 from ksau_py import app, coro
-from ksau_py.ksau_api import get_upload_token, create_upload_session, upload_file_in_chunks
+from ksau_py.ksau_api import (
+    get_upload_token,
+    create_upload_session,
+    upload_file_in_chunks,
+    get_quick_xor_hash
+)
 
 console = Console()
 VALID_REMOTES = ["oned", "hakimidrive", "saurajcf"]
@@ -46,7 +51,17 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int)
         CHUNK_SIZE: Upload chunk size in MB (default: 5)
     """
     try:
+        # Validate chunk size
+        if chunk_size < 1:
+            raise click.BadParameter("Chunk size must be at least 1 MB")
+        if chunk_size > 60:
+            raise click.BadParameter("Chunk size must be 60 MB or less")
+
         file_stats = Path(file_path).stat()
+        print(f"\nStep 1: Initializing upload...")
+        print(f"File size: {file_stats.st_size / (1024*1024):.2f} MB")
+        print(f"Chunk size: {chunk_size} MB")
+        
         token = await get_upload_token(remote)
         local_file = Path(file_path)
         remote_dir = remote_path.strip('/')
@@ -71,13 +86,17 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int)
             def update_progress(value: int):
                 progress.update(task, completed=value)
             
-            # Upload file
-            await upload_file_in_chunks(
+            # Upload file and get the file ID
+            file_id = await upload_file_in_chunks(
                 file_path,
                 upload_url,
                 chunk_size,
                 update_progress
             )
+            
+            # Get the quickXorHash
+            print("\nStep 3: Getting quickXorHash...")
+            quick_xor_hash = await get_quick_xor_hash(token.access_token, file_id)
         
         # Calculate and display download info
         base_url = token.base_url.rstrip("/")
@@ -85,9 +104,9 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int)
         download_url = f"{base_url}/{download_path}"
         
         rprint("\n[green]✓ Upload completed successfully![/green]")
-        rprint("\n[bold]Download Information:[/bold]")
+        rprint("\n[bold]File Information:[/bold]")
         rprint(f"[yellow]URL:[/yellow] {download_url}")
+        rprint(f"[yellow]QuickXorHash:[/yellow] {quick_xor_hash}")
         
     except Exception as e:
         rprint(f"[red]Error: {str(e)}[/red]")
-        raise click.Abort()

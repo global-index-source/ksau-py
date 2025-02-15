@@ -39,11 +39,14 @@ class TokenResponse:
     base_url: str
     upload_root_path: str
 
+import aiohttp.client_exceptions
+
 async def get_upload_token(remote: str) -> TokenResponse:
     """Get upload token from the API."""
     url = f"{KSAU_BASE_URL}{ENDPOINTS['token']}?remote={remote}"
     
-    async with ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=30)  # 30 seconds total timeout
+    async with ClientSession(timeout=timeout) as session:
         async with session.get(url) as response:
             if not response.ok:
                 error_text = await response.text()
@@ -62,7 +65,8 @@ async def create_upload_session(access_token: str, remote_file_path: str, upload
         "Content-Type": "application/json",
     }
     
-    async with ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(total=30)  # 30 seconds total timeout
+    async with ClientSession(timeout=timeout) as session:
         async with session.post(
             url,
             headers=headers,
@@ -79,18 +83,42 @@ async def create_upload_session(access_token: str, remote_file_path: str, upload
             data = await response.json()
             return data["uploadUrl"]
 
+async def get_quick_xor_hash(access_token: str, file_id: str) -> str:
+    """Get the quickXorHash for a file using its ID."""
+    url = f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+    }
+    
+    timeout = aiohttp.ClientTimeout(total=30)  # 30 seconds total timeout
+    async with ClientSession(timeout=timeout) as session:
+        async with session.get(url, headers=headers) as response:
+            if not response.ok:
+                error_text = await response.text()
+                print(f"Debug: File metadata fetch failed with status {response.status}")
+                print(f"Debug: Error response: {error_text}")
+                raise RuntimeError(f"Failed to fetch file metadata: {error_text}")
+            
+            data = await response.json()
+            if not data.get("file", {}).get("hashes", {}).get("quickXorHash"):
+                raise RuntimeError("quickXorHash not found in metadata")
+            
+            return data["file"]["hashes"]["quickXorHash"]
+
 async def upload_file_in_chunks(
     file_path: str,
     upload_url: str,
     chunk_size_mb: int = 5,
     on_progress: Optional[callable] = None
-) -> None:
+) -> str:
     """Upload file in chunks to the specified upload URL."""
     chunk_size = chunk_size_mb * 1024 * 1024
     file_size = Path(file_path).stat().st_size
     uploaded = 0
     
-    async with ClientSession() as session:
+    # Use longer timeout for large file uploads
+    timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=60)
+    async with ClientSession(timeout=timeout) as session:
         with open(file_path, "rb") as f:
             while uploaded < file_size:
                 chunk_end = min(uploaded + chunk_size, file_size)
@@ -108,11 +136,32 @@ async def upload_file_in_chunks(
                     },
                     data=chunk
                 ) as response:
-                    if not response.ok:
-                        error_text = await response.text()
-                        raise RuntimeError(f"Failed to upload chunk {content_range}, status: {response.status}, error: {error_text}")
-                
-                uploaded = chunk_end
-                if on_progress:
-                    progress = (uploaded / file_size) * 100
-                    on_progress(round(progress))
+                    try:
+                        if not response.ok:
+                            error_text = await response.text()
+                            raise RuntimeError(f"Failed to upload chunk {content_range}, status: {response.status}, error: {error_text}")
+                        
+                        uploaded = chunk_end
+                        if on_progress:
+                            progress = (uploaded / file_size) * 100
+                            on_progress(round(progress))
+                        
+                        # Get file ID from the last chunk's response
+                        if uploaded == file_size:
+                            data = await response.json()
+                            if not data or not data.get("id"):
+                                raise RuntimeError("File ID not found in upload response")
+                            return data["id"]
+                    except aiohttp.ClientError as e:
+                        error_msg = str(e)
+                        print(f"\nDebug: Network error during chunk upload: {error_msg}")
+                        if "timeout" in error_msg.lower():
+                            raise RuntimeError(f"Upload timeout. Try reducing the chunk size (current: {chunk_size_mb}MB)")
+                        elif "connection" in error_msg.lower():
+                            raise RuntimeError("Connection error. Try reducing the chunk size or check your network")
+                        raise RuntimeError(f"Upload failed: {error_msg}")
+                    except Exception as e:
+                        print(f"\nDebug: Unexpected error during chunk upload: {str(e)}")
+                        raise
+            
+    return ""  # Should never reach here
