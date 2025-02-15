@@ -21,7 +21,7 @@ from ksau_py import ksau_api
 
 
 async def get_graph_client(remote: str) -> GraphServiceClient:
-    credential:ksau_api.RemoteCredentials  = await ksau_api.get_remote_credentials(remote)
+    credential: ksau_api.RemoteCredentials = await ksau_api.get_remote_credentials(remote)
 
     client_credential: ClientSecretCredential = ClientSecretCredential(
         credential.drive_id,
