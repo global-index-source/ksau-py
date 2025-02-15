@@ -15,7 +15,10 @@
 # limitations under the License.
 
 import asyncio
+import functools
+from typing import Any, Callable
 
+import click
 from typer import Typer
 
 REMOTES: list[str] = [
@@ -24,5 +27,11 @@ REMOTES: list[str] = [
     "oned",
 ]
 
-event_loop = asyncio.new_event_loop()
-app: Typer = Typer(name="ksau-py")
+app = Typer(name="ksau-py")
+
+def coro(f: Callable) -> Callable:
+    """Decorator to run async functions in click/typer commands."""
+    @functools.wraps(f)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        return asyncio.run(f(*args, **kwargs))
+    return wrapper

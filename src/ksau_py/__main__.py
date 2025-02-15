@@ -17,5 +17,9 @@
 import ksau_py.commands  # noqa: F401
 from ksau_py import app
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the CLI application."""
     app()
+
+if __name__ == "__main__":
+    main()

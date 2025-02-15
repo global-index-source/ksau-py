@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ksau-py = "ksau_py:main"
+ksau-py = "ksau_py.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
