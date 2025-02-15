@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import base64
+from asyncio import Task, wait
 from collections.abc import Callable
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from aiohttp import ClientSession
 from anyio import open_file
 from quickxorhash import quickxorhash
 from rich.progress import Progress
+from typer import progressbar
 
 from ksau_py import REMOTES, app, console, coro
 from ksau_py.ksau_api import create_upload_session, get_upload_token
@@ -55,14 +57,22 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int 
         upload_url = await create_upload_session(token.access_token, final_remote_path, token.upload_root_path)
 
         # Setup progress bar
-        with Progress() as progress:
-            task = progress.add_task("[cyan]Uploading...", total=100)
+        with Progress(console=console) as progress:
+            upload_task = progress.add_task("[cyan]Uploading...", total=100)
+            quickxor_task = progress.add_task("[cyan]Computing QuickXorHash...", total=Path(file_path).stat().st_size)
 
-            def update_progress(value: int) -> None:
-                progress.update(task, completed=value)
+            def update_quickxor_task(value: int) -> None:
+                progress.update(quickxor_task, completed=value)
+
+            def update_upload_progress(value: int) -> None:
+                progress.update(upload_task, completed=value)
+
+            local_hash = await compute_local_quickxorhash(Path(file_path), update_quickxor_task)
+            console.print(f"[cyan]Local file QuickXorHash: [/cyan][bold green]{local_hash}[/bold green]")
 
             # Upload file
-            quickxor_upload = await upload_file_in_chunks(file_path, upload_url, chunk_size, update_progress)
+            quickxor_upload = await upload_file_in_chunks(file_path, upload_url, chunk_size, update_upload_progress)
+
 
         # Calculate and display download info
         base_url = token.base_url.rstrip("/")
@@ -70,7 +80,7 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int 
         download_url = f"{base_url}/{download_path}"
 
         console.print("\n[green]✓ Upload completed successfully![/green]")
-        console.print(f"[cyan]✓ QuickXorHash: [/cyan][bold]{quickxor_upload!s}[/bold]")
+        console.print(f"[cyan]✓ QuickXorHash: [/cyan][bold]{quickxor_upload}[/bold]")
         console.print("\n[bold]Download Information:[/bold]")
         console.print(f"[yellow]URL:[/yellow] {download_url}")
 
@@ -79,8 +89,23 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int 
         raise click.Abort from e
 
     except Exception as e:
-        console.print(f"[red]Error: {(e)}[/red]")
+        console.print(f"[red]Error: {e}[/red]")
         raise click.Abort from e
+
+
+async def compute_local_quickxorhash(file: Path, update_progress: Callable) -> bytes:
+    hash_ = quickxorhash()
+    file_size: int = file.stat().st_size
+    computed: int = 0
+
+    async with await open_file(file.as_posix(), "rb") as f:
+        while chunk := await f.read(320 * 1024):
+            hash_.update(chunk)
+            computed += len(chunk)
+
+            update_progress(computed)
+
+    return base64.b64encode(hash_.digest())
 
 
 async def upload_file_in_chunks(
