@@ -16,9 +16,10 @@
 
 import asyncio
 import functools
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-import click
+from rich.console import Console
 from typer import Typer
 
 REMOTES: list[str] = [
@@ -28,10 +29,14 @@ REMOTES: list[str] = [
 ]
 
 app = Typer(name="ksau-py")
+console: Console = Console()
+
 
 def coro(f: Callable) -> Callable:
     """Decorator to run async functions in click/typer commands."""
+
     @functools.wraps(f)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+    def wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         return asyncio.run(f(*args, **kwargs))
+
     return wrapper
