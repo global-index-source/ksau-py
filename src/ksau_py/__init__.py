@@ -16,6 +16,7 @@
 
 import asyncio
 
+from rich.console import Console
 from typer import Typer
 
 REMOTES: list[str] = [
@@ -26,3 +27,4 @@ REMOTES: list[str] = [
 
 event_loop = asyncio.new_event_loop()
 app: Typer = Typer(name="ksau-py")
+console: Console = Console()
