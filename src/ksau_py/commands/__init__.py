@@ -14,9 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ksau_py.commands import remotes, upload
+from ksau_py.commands import remotes, retarded_graph
 
 __all__ = [
     "remotes",
-    "upload",
+    "retarded_graph",
 ]

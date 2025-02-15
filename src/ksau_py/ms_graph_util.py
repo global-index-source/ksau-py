@@ -14,19 +14,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from azure.identity.aio import ClientSecretCredential
+import datetime
+from dataclasses import dataclass
+
+from azure.core.credentials import AccessToken, TokenCredential
 from msgraph.graph_service_client import GraphServiceClient
 
 from ksau_py import ksau_api
 
 
-async def get_graph_client(remote: str) -> GraphServiceClient:
+class ExistingAccessToken(TokenCredential):
+    def __init__(self, token: str, expires_in: int) -> None:
+        self.token = token
+        self.expires_in = expires_in
+
+    def get_token(self, *_, **__) -> AccessToken:
+        return AccessToken(self.token, int(datetime.datetime.now(datetime.timezone.utc).timestamp()) + self.expires_in)
+
+
+@dataclass
+class Client:
+    graph_service_client: GraphServiceClient
+    credential: ksau_api.RemoteCredentials
+
+
+async def get_graph_client(remote: str) -> Client:
     credential: ksau_api.RemoteCredentials = await ksau_api.get_remote_credentials(remote)
-
-    client_credential: ClientSecretCredential = ClientSecretCredential(
-        "common",
-        credential.client_id,
-        credential.client_secret,
+    return Client(
+        graph_service_client=GraphServiceClient(ExistingAccessToken(credential.access_token, credential.expires_in)),
+        credential=credential,
     )
-
-    return GraphServiceClient(client_credential)

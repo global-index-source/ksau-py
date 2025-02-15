@@ -5,8 +5,10 @@ target-version = "py310"
 select = ["ALL"]
 ignore = [
     "D101",     # undocumented-public-class
+    "D102",     # undocumented-public-method
     "D103",     # undocumented-public-function
     "D104",     # undocumented-public-package
+    "D107",     # undocumented-public-init
     "ARG001",   # unused-function-argument
     "PLW0603",  # global-statement
     "D100",     # undocumented-public-module
