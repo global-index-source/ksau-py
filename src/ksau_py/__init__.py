@@ -18,5 +18,11 @@ import asyncio
 
 from typer import Typer
 
+REMOTES: list[str] = [
+    "hakimionedrive",
+    "saurajcf",
+    "oned",
+]
+
 event_loop = asyncio.new_event_loop()
 app: Typer = Typer(name="ksau-py")

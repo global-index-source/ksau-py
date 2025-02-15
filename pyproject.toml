@@ -13,6 +13,7 @@ dependencies = [
     "anyio>=4.8.0",
     "azure-identity>=1.20.0",
     "msgraph-sdk>=1.21.0",
+    "rich>=13.9.4",
     "typer>=0.15.1",
 ]
 

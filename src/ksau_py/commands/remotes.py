@@ -14,9 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ksau_py import app
+from rich import print  # noqa: A004
+
+from ksau_py import REMOTES, app
 
 
 @app.command("list-remotes", short_help="List available remotes")
 def remotes() -> None:
-    pass
+    print("[bold cyan]Available remotes are:[/bold cyan]", REMOTES)
