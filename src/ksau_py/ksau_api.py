@@ -66,7 +66,7 @@ async def create_upload_session(access_token: str, remote_file_path: str, upload
             headers=headers,
             json={
                 "item": {
-                    "@microsoft.graph.conflictBehavior": "rename",
+                    "@microsoft.graph.conflictBehavior": "replace",
                 }
             },
         ) as response,
