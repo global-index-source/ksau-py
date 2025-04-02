@@ -24,25 +24,40 @@ from aiohttp import ClientSession
 from anyio import open_file
 from quickxorhash import quickxorhash
 from rich.progress import Progress
-from typer import progressbar
 
 from ksau_py import REMOTES, app, console, coro
 from ksau_py.ksau_api import create_upload_session, get_upload_token
 
+progress: Progress = Progress(console=console)
+
 
 @app.command("upload")
-@click.argument("file_path", type=click.Path(exists=True, dir_okay=False, resolve_path=True))
 @click.argument("remote_path", type=str)
 @click.argument("remote", type=click.Choice(REMOTES))
-@click.argument("chunk_size", type=int, default=5)
+@click.argument("files", nargs=-1, type=click.Path(exists=True, dir_okay=False, resolve_path=True))
+@click.option("-c", "--chunk-size", type=int, default=5, is_flag=True)
 @coro
-async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int = 5) -> None:
+async def upload(remote_path: str, remote: str, files: list[str], chunk_size: int = 5) -> None:
     """Upload a file to remote storage.
 
     Arguments:
-        file_path(str): Path to the local file to upload
         remote_path(str): Destination path in remote storage
         remote(str): Remote storage to use (oned, hakimidrive, or saurajcf)
+        files(list[str]): List of files to be uploaded.
+        chunk_size(int): Upload chunk size in MB (default: 5)
+    """
+    progress.start()
+    tasks: list[Task] = [Task(upload_handler(remote_path, remote, file, chunk_size)) for file in files]
+    await wait(tasks)
+
+
+async def upload_handler(remote_path: str, remote: str, file_path: str, chunk_size: int = 5) -> None:
+    """Upload a file to remote storage.
+
+    Arguments:
+        remote_path(str): Destination path in remote storage
+        remote(str): Remote storage to use (oned, hakimidrive, or saurajcf)
+        file_path(str): Path to file to be uploaded
         chunk_size(int): Upload chunk size in MB (default: 5)
     """
     try:
@@ -56,23 +71,20 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int 
 
         upload_url = await create_upload_session(token.access_token, final_remote_path, token.upload_root_path)
 
-        # Setup progress bar
-        with Progress(console=console) as progress:
-            upload_task = progress.add_task("[cyan]Uploading...", total=100)
-            quickxor_task = progress.add_task("[cyan]Computing QuickXorHash...", total=Path(file_path).stat().st_size)
+        upload_task = progress.add_task("[cyan]Uploading...", total=100)
+        quickxor_task = progress.add_task("[cyan]Computing QuickXorHash...", total=Path(file_path).stat().st_size)
 
-            def update_quickxor_task(value: int) -> None:
-                progress.update(quickxor_task, completed=value)
+        def update_quickxor_task(value: int) -> None:
+            progress.update(quickxor_task, completed=value)
 
-            def update_upload_progress(value: int) -> None:
-                progress.update(upload_task, completed=value)
+        def update_upload_progress(value: int) -> None:
+            progress.update(upload_task, completed=value)
 
-            local_hash = await compute_local_quickxorhash(Path(file_path), update_quickxor_task)
-            console.print(f"[cyan]Local file QuickXorHash: [/cyan][bold green]{local_hash}[/bold green]")
+        local_hash = await compute_local_quickxorhash(Path(file_path), update_quickxor_task)
+        console.print(f"[cyan]Local file QuickXorHash: [/cyan][bold green]{local_hash}[/bold green]")
 
-            # Upload file
-            quickxor_upload = await upload_file_in_chunks(file_path, upload_url, chunk_size, update_upload_progress)
-
+        # Upload file
+        quickxor_upload = await upload_file_in_chunks(file_path, upload_url, chunk_size, update_upload_progress)
 
         # Calculate and display download info
         base_url = token.base_url.rstrip("/")
@@ -95,7 +107,6 @@ async def upload(file_path: str, remote_path: str, remote: str, chunk_size: int 
 
 async def compute_local_quickxorhash(file: Path, update_progress: Callable) -> bytes:
     hash_ = quickxorhash()
-    file_size: int = file.stat().st_size
     computed: int = 0
 
     async with await open_file(file.as_posix(), "rb") as f:
