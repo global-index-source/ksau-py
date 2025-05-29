@@ -14,12 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ksau_py.commands import remotes, upload, version, system, utils
+from ksau_py import app, console
 
-__all__ = [
-    "remotes",
-    "upload",
-    "version",
-    "system",
-    "utils",
-]
+# Version information
+KSAU_PY_VERSION = "1.0.0"
+KSAU_PY_VERSION_STRING = f"ksau-py Version {KSAU_PY_VERSION}"
+
+
+@app.command("version", short_help="Show ksau-py version")
+def version() -> None:
+    """Show the current version of ksau-py."""
+    console.print(f"[orange1]{KSAU_PY_VERSION_STRING}[/orange1]")
+    console.print("[dim]Python rewrite of the original ksau tool[/dim]")
+    console.print("[dim]Tool by Sauraj (@Ksauraj) and @hakimifr[/dim]") 

@@ -28,7 +28,36 @@ REMOTES: list[str] = [
     "oned",
 ]
 
-app = Typer(name="ksau-py")
+# Create app with custom help
+app = Typer(
+    name="ksau-py",
+    help="""
+    ksau-py - Fast Cloud File Upload Tool
+    
+    A Python rewrite of the original ksau bash script for uploading files 
+    to multiple cloud storage backends.
+    
+    Features:
+    • Upload to multiple cloud storage remotes
+    • Random filename generation for privacy (-r)
+    • Quiet mode for scripting (-q)
+    • Specific remote selection (-c)
+    • Storage quota monitoring
+    • System information display
+    
+    Examples:
+      ksau-py upload myfile.txt Public
+      ksau-py upload -r myfile.txt Public  
+      ksau-py upload -q myfile.txt Public
+      ksau-py list
+    
+    Support: https://t.me/ksau_update
+    Created by Sauraj (@Ksauraj) and @hakimifr
+    """,
+    add_completion=False,
+    rich_markup_mode="rich"
+)
+
 console: Console = Console()
 
 
