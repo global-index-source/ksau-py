@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import hashlib
+import secrets
 import random
 import string
 import time
@@ -35,7 +36,8 @@ def add_random_string(filename: str) -> str:
     file_path = Path(filename)
     extension = file_path.suffix
     name = file_path.stem
-    random_string = hashlib.sha256(str(int(time.time())).encode()).hexdigest()[:8]
+    # 8-hex-char cryptographically-strong random suffix
+    random_string = secrets.token_hex(4)
     
     if extension:
         return f"{name}-{random_string}{extension}"
@@ -45,6 +47,8 @@ def add_random_string(filename: str) -> str:
 
 def select_remote_random() -> str:
     """Select remote randomly."""
+    if not REMOTES:
+        raise click.ClickException("No remotes configured. Cannot upload.")
     return random.choice(REMOTES)
 
 
@@ -57,7 +61,9 @@ async def select_remote_most_free() -> str:
         
         for remote_name, quota in quota_info.items():
             # Parse remaining space (assuming format like "1.5 TB")
-            remaining_str = quota.remaining.replace(',', '').split()[0]
+            qty, unit = quota.remaining.replace(',', '').split()[:2]
+            factor = {"B":1, "KB":2**10, "MB":2**20, "GB":2**30, "TB":2**40}.get(unit.upper(), 1)
+            remaining_val = float(qty) * factor
             try:
                 remaining_val = float(remaining_str)
                 if remaining_val > max_remaining:
