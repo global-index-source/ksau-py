@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 
+import aiofiles
 from aiohttp import ClientSession, FormData
 
 KSAU_BASE_URL: str = "https://project.ksauraj.eu.org"
@@ -80,8 +81,7 @@ async def upload_file_api(
     remote: str, 
     remote_folder: str = "", 
     chunk_size: int = 32,
-    custom_filename: str = None,
-    progress_callback=None
+    custom_filename: str = None
 ) -> UploadResponse:
     """Upload file using the project API."""
     url = f"{KSAU_BASE_URL}{ENDPOINTS['upload']}"
@@ -89,28 +89,30 @@ async def upload_file_api(
     file_path_obj = Path(file_path)
     filename = custom_filename if custom_filename else file_path_obj.name
     
-    # Create form data
-    data = FormData()
-    data.add_field('remote', remote)
-    data.add_field('remoteFolder', remote_folder)
-    data.add_field('chunkSize', str(chunk_size))
-    data.add_field('file', open(file_path, 'rb'), filename=filename)
-    
     async with ClientSession() as session:
-        async with session.post(url, data=data) as response:
-            if not response.ok:
-                error_text = await response.text()
-                msg = f"Failed to upload file: {error_text}"
-                raise RuntimeError(msg)
+        # Create form data with file opened in context manager
+        data = FormData()
+        data.add_field('remote', remote)
+        data.add_field('remoteFolder', remote_folder)
+        data.add_field('chunkSize', str(chunk_size))
+        
+        with open(file_path, "rb") as fp:
+            data.add_field("file", fp, filename=filename)
             
-            result = await response.json()
-            return UploadResponse(
-                status=result['status'],
-                message=result['message'],
-                download_url=result['downloadURL'],
-                file_size=result['fileSize'],
-                file_name=result['fileName']
-            )
+            async with session.post(url, data=data) as response:
+                if not response.ok:
+                    error_text = await response.text()
+                    msg = f"Failed to upload file: {error_text}"
+                    raise RuntimeError(msg)
+                
+                result = await response.json()
+                return UploadResponse(
+                    status=result['status'],
+                    message=result['message'],
+                    download_url=result['downloadURL'],
+                    file_size=result['fileSize'],
+                    file_name=result['fileName']
+                )
 
 
 async def upload_file_binary(
@@ -118,8 +120,7 @@ async def upload_file_binary(
     remote: str, 
     remote_folder: str = "",
     chunk_size: int = 32,
-    filename: str = None,
-    progress_callback=None
+    filename: str = None
 ) -> UploadResponse:
     """Upload file using binary upload method."""
     url = f"{KSAU_BASE_URL}{ENDPOINTS['upload']}"
@@ -137,23 +138,21 @@ async def upload_file_binary(
     }
     
     async with ClientSession() as session:
-        with open(file_path, 'rb') as f:
-            data = f.read()
-            
-        async with session.post(url, headers=headers, data=data) as response:
-            if not response.ok:
-                error_text = await response.text()
-                msg = f"Failed to upload file: {error_text}"
-                raise RuntimeError(msg)
-            
-            result = await response.json()
-            return UploadResponse(
-                status=result['status'],
-                message=result['message'],
-                download_url=result['downloadURL'],
-                file_size=result['fileSize'],
-                file_name=result['fileName']
-            )
+        async with aiofiles.open(file_path, 'rb') as f:
+            async with session.post(url, headers=headers, data=f) as response:
+                if not response.ok:
+                    error_text = await response.text()
+                    msg = f"Failed to upload file: {error_text}"
+                    raise RuntimeError(msg)
+                
+                result = await response.json()
+                return UploadResponse(
+                    status=result['status'],
+                    message=result['message'],
+                    download_url=result['downloadURL'],
+                    file_size=result['fileSize'],
+                    file_name=result['fileName']
+                )
 
 
 async def get_system_info() -> Dict[str, Any]:
