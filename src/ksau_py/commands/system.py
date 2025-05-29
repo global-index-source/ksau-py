@@ -28,8 +28,8 @@ async def system() -> None:
     try:
         data = await get_system_info()
         
-        if data['status'] == 'success':
-            system_data = data['data']
+        if data.get('status') == 'success':
+            system_data = data.get('data', {})
             
             # Create main info table
             table = Table(show_header=True, header_style="bold magenta")
@@ -64,8 +64,10 @@ async def system() -> None:
         else:
             console.print("[red]Failed to retrieve system information[/red]")
             
-    except Exception as e:
-        console.print(f"[red]Error fetching system information: {e}[/red]")
+    except aiohttp.ClientError as e:
+        console.print(f"[red]Network error: {e}[/red]")
+    except KeyError as e:
+        console.print(f"[red]Unexpected response format: missing {e}[/red]")
 
 
 @app.command("neofetch", short_help="Show neofetch-style system information")
@@ -79,32 +81,41 @@ async def neofetch() -> None:
             neofetch_data = data['data']
             
             # Display ASCII art and system info side by side
-            ascii_art = neofetch_data['ascii_art']
-            system_info = neofetch_data['system']
-            performance = neofetch_data['performance']
+            ascii_art = neofetch_data.get('ascii_art', '')
+            system_info = neofetch_data.get('system', {})
+            performance = neofetch_data.get('performance', {})
+            
+            # Safely get primary color with validation
+            primary_color = neofetch_data.get("colors", {}).get("primary", "white")
+            # Validate color string to prevent markup errors
+            if not primary_color or not isinstance(primary_color, str) or '[' in primary_color or ']' in primary_color:
+                primary_color = "white"
             
             # Create the neofetch display
-            console.print(f"[{neofetch_data['colors']['primary']}]{ascii_art}[/{neofetch_data['colors']['primary']}]")
-            console.print(f"\n[bold]{system_info['user']}@{system_info['hostname']}[/bold]")
+            console.print(f"[{primary_color}]{ascii_art}[/{primary_color}]")
+            console.print(f"\n[bold]{system_info.get('user', 'unknown')}@{system_info.get('hostname', 'unknown')}[/bold]")
             console.print("-" * 40)
-            console.print(f"[cyan]OS:[/cyan] {system_info['distro']}")
-            console.print(f"[cyan]Kernel:[/cyan] {system_info['kernel']}")
-            console.print(f"[cyan]Uptime:[/cyan] {system_info['uptime']}")
-            console.print(f"[cyan]Shell:[/cyan] {system_info['shell']}")
-            console.print(f"[cyan]CPU:[/cyan] {system_info['cpu']}")
-            console.print(f"[cyan]Memory:[/cyan] {system_info['memory']}")
-            console.print(f"[cyan]Disk Usage:[/cyan] {system_info['disk_usage']}")
-            console.print(f"[cyan]Local IP:[/cyan] {system_info['local_ip']}")
-            console.print(f"[cyan]Server Time:[/cyan] {system_info['server_time']}")
+            console.print(f"[cyan]OS:[/cyan] {system_info.get('distro', 'Unknown')}")
+            console.print(f"[cyan]Kernel:[/cyan] {system_info.get('kernel', 'Unknown')}")
+            console.print(f"[cyan]Uptime:[/cyan] {system_info.get('uptime', 'Unknown')}")
+            console.print(f"[cyan]Shell:[/cyan] {system_info.get('shell', 'Unknown')}")
+            console.print(f"[cyan]CPU:[/cyan] {system_info.get('cpu', 'Unknown')}")
+            console.print(f"[cyan]Memory:[/cyan] {system_info.get('memory', 'Unknown')}")
+            console.print(f"[cyan]Disk Usage:[/cyan] {system_info.get('disk_usage', 'Unknown')}")
+            console.print(f"[cyan]Local IP:[/cyan] {system_info.get('local_ip', 'Unknown')}")
+            console.print(f"[cyan]Server Time:[/cyan] {system_info.get('server_time', 'Unknown')}")
             
             # Performance metrics
             console.print(f"\n[bold yellow]Performance Metrics:[/bold yellow]")
-            console.print(f"[cyan]CPU Usage:[/cyan] {performance['cpu_usage']:.2f}%")
-            console.print(f"[cyan]Memory Usage:[/cyan] {performance['memory_usage']:.2f}%")
-            console.print(f"[cyan]CPU Frequency:[/cyan] {performance['cpu_frequency']:.2f} MHz")
+            console.print(f"[cyan]CPU Usage:[/cyan] {performance.get('cpu_usage', 0):.2f}%")
+            console.print(f"[cyan]Memory Usage:[/cyan] {performance.get('memory_usage', 0):.2f}%")
+            console.print(f"[cyan]CPU Frequency:[/cyan] {performance.get('cpu_frequency', 0):.2f} MHz")
             
-            load_avg = system_info['load_average']
-            console.print(f"[cyan]Load Average:[/cyan] {load_avg[0]:.2f}, {load_avg[1]:.2f}, {load_avg[2]:.2f}")
+            load_avg = system_info.get('load_average', [0.0, 0.0, 0.0])
+            if isinstance(load_avg, list) and len(load_avg) >= 3:
+                console.print(f"[cyan]Load Average:[/cyan] {load_avg[0]:.2f}, {load_avg[1]:.2f}, {load_avg[2]:.2f}")
+            else:
+                console.print(f"[cyan]Load Average:[/cyan] N/A")
             
         else:
             console.print("[red]Failed to retrieve neofetch information[/red]")
