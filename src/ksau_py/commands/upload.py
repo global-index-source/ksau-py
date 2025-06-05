@@ -26,7 +26,10 @@ import click
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 from ksau_py import REMOTES, app, console, coro
-from ksau_py.ksau_api import upload_file_api, get_quota_info
+from ksau_py.ksau_api import upload_file_api, upload_file_with_progress, get_quota_info
+
+# Global progress instance for all uploads
+progress: Progress = Progress(console=console)
 
 
 def add_random_string(filename: str) -> str:
@@ -83,8 +86,7 @@ async def upload_single_file(
     remote: str,
     chunk_size: int,
     file_index: int,
-    total_files: int,
-    progress: Progress = None
+    total_files: int
 ) -> dict:
     """Upload a single file and return the result."""
     file_path = Path(file)
@@ -112,20 +114,32 @@ async def upload_single_file(
             if not quiet and total_files > 1:
                 console.print(f"[{file_index}/{total_files}] Using remote with most free space: [green]{selected_remote}[/green]")
     
-    if not quiet and progress:
+    # Add task to global progress if not in quiet mode
+    if not quiet:
         task = progress.add_task(f"Uploading {original_filename}...", total=100)
-    
-    # Upload file using the API
-    result = await upload_file_api(
-        file_path=str(file_path),
-        remote=selected_remote,
-        remote_folder=folder,
-        chunk_size=chunk_size,
-        custom_filename=upload_filename if add_random else None
-    )
-    
-    if not quiet and progress:
-        progress.update(task, completed=100)
+        
+        # Define progress callback
+        def update_progress(percent: int):
+            progress.update(task, completed=percent)
+        
+        # Upload file using the API with progress
+        result = await upload_file_with_progress(
+            file_path=str(file_path),
+            remote=selected_remote,
+            remote_folder=folder,
+            chunk_size=chunk_size,
+            custom_filename=upload_filename if add_random else None,
+            progress_callback=update_progress
+        )
+    else:
+        # Quiet mode - use regular API without progress
+        result = await upload_file_api(
+            file_path=str(file_path),
+            remote=selected_remote,
+            remote_folder=folder,
+            chunk_size=chunk_size,
+            custom_filename=upload_filename if add_random else None
+        )
     
     return result
 
@@ -162,36 +176,10 @@ async def upload(
         
         if not quiet:
             console.print("Initializing upload process...")
-            # Create progress bar for all files
-            progress = Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                console=console,
-            )
-            
-            with progress:
-                # Create upload tasks for all files
-                upload_tasks = [
-                    upload_single_file(
-                        file=file,
-                        folder=folder,
-                        add_random=add_random,
-                        quiet=quiet,
-                        remote=remote,
-                        chunk_size=chunk_size,
-                        file_index=i,
-                        total_files=total_files,
-                        progress=progress
-                    )
-                    for i, file in enumerate(files, 1)
-                ]
-                
-                # Run all uploads in parallel
-                results = await asyncio.gather(*upload_tasks)
-        else:
-            # Quiet mode - run uploads in parallel without progress
+            progress.start()
+        
+        try:
+            # Create upload tasks for all files
             upload_tasks = [
                 upload_single_file(
                     file=file,
@@ -201,13 +189,16 @@ async def upload(
                     remote=remote,
                     chunk_size=chunk_size,
                     file_index=i,
-                    total_files=total_files,
-                    progress=None
+                    total_files=total_files
                 )
                 for i, file in enumerate(files, 1)
             ]
             
+            # Run all uploads in parallel
             results = await asyncio.gather(*upload_tasks)
+        finally:
+            if not quiet:
+                progress.stop()
         
         # Display results
         for i, result in enumerate(results):
@@ -225,10 +216,12 @@ async def upload(
 
     except (KeyboardInterrupt, SystemExit) as e:
         if not quiet:
+            progress.stop()
             console.print("[red]Upload aborted by user[/red]")
         raise click.Abort from e
     except Exception as e:
         if not quiet:
+            progress.stop()
             console.print(f"[red]Upload failed: {e}[/red]")
         else:
             print(f"Error: {e}")

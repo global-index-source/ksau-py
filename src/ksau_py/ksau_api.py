@@ -17,7 +17,7 @@
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Callable
 
 import aiofiles
 from aiohttp import ClientSession, FormData
@@ -235,3 +235,60 @@ async def create_upload_session(access_token: str, remote_file_path: str, upload
 
         data = await response.json()
         return data["uploadUrl"]
+
+
+async def upload_file_with_progress(
+    file_path: str, 
+    remote: str, 
+    remote_folder: str = "", 
+    chunk_size: int = 32,
+    custom_filename: str = None,
+    progress_callback: Callable[[int], None] = None
+) -> UploadResponse:
+    """Upload file using binary upload method with progress tracking."""
+    url = f"{KSAU_BASE_URL}{ENDPOINTS['upload']}"
+    
+    file_path_obj = Path(file_path)
+    filename = custom_filename if custom_filename else file_path_obj.name
+    file_size = file_path_obj.stat().st_size
+    
+    headers = {
+        'Content-Type': 'application/octet-stream',
+        'X-Remote': remote,
+        'X-Remote-Folder': remote_folder,
+        'X-Filename': filename,
+        'X-Chunk-Size': str(chunk_size)
+    }
+    
+    # Read file content and track progress
+    file_content = bytearray()
+    bytes_read = 0
+    
+    async with aiofiles.open(file_path, 'rb') as f:
+        while True:
+            chunk = await f.read(1024 * 1024)  # Read 1MB at a time
+            if not chunk:
+                break
+            file_content.extend(chunk)
+            bytes_read += len(chunk)
+            
+            if progress_callback:
+                progress_percent = int((bytes_read / file_size) * 100)
+                progress_callback(progress_percent)
+    
+    # Upload the file
+    async with ClientSession() as session:
+        async with session.post(url, headers=headers, data=file_content) as response:
+            if not response.ok:
+                error_text = await response.text()
+                msg = f"Failed to upload file: {error_text}"
+                raise RuntimeError(msg)
+            
+            result = await response.json()
+            return UploadResponse(
+                status=result['status'],
+                message=result['message'],
+                download_url=result['downloadURL'],
+                file_size=result['fileSize'],
+                file_name=result['fileName']
+            )
