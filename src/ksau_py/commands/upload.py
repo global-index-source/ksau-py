@@ -19,6 +19,7 @@ import secrets
 import random
 import string
 import time
+import asyncio
 from pathlib import Path
 
 import click
@@ -74,6 +75,61 @@ async def select_remote_most_free() -> str:
         return select_remote_random()
 
 
+async def upload_single_file(
+    file: str,
+    folder: str,
+    add_random: bool,
+    quiet: bool,
+    remote: str,
+    chunk_size: int,
+    file_index: int,
+    total_files: int,
+    progress: Progress = None
+) -> dict:
+    """Upload a single file and return the result."""
+    file_path = Path(file)
+    original_filename = file_path.name
+    
+    # Generate new filename if random string option is enabled
+    if add_random:
+        upload_filename = add_random_string(original_filename)
+    else:
+        upload_filename = original_filename
+    
+    # Select remote for this file
+    if remote:
+        selected_remote = remote
+        if not quiet and total_files > 1:
+            console.print(f"[{file_index}/{total_files}] Using requested remote: [green]{selected_remote}[/green]")
+    else:
+        file_size = file_path.stat().st_size
+        if file_size < 100 * 1024 * 1024:  # < 100MB
+            selected_remote = select_remote_random()
+            if not quiet and total_files > 1:
+                console.print(f"[{file_index}/{total_files}] File size is <100MB, selecting random remote: [green]{selected_remote}[/green]")
+        else:
+            selected_remote = await select_remote_most_free()
+            if not quiet and total_files > 1:
+                console.print(f"[{file_index}/{total_files}] Using remote with most free space: [green]{selected_remote}[/green]")
+    
+    if not quiet and progress:
+        task = progress.add_task(f"Uploading {original_filename}...", total=100)
+    
+    # Upload file using the API
+    result = await upload_file_api(
+        file_path=str(file_path),
+        remote=selected_remote,
+        remote_folder=folder,
+        chunk_size=chunk_size,
+        custom_filename=upload_filename if add_random else None
+    )
+    
+    if not quiet and progress:
+        progress.update(task, completed=100)
+    
+    return result
+
+
 @app.command("upload")
 @click.argument("folder", type=str)
 @click.argument("files", nargs=-1, type=click.Path(exists=True, dir_okay=False, resolve_path=True), required=True)
@@ -102,75 +158,59 @@ async def upload(
                 console.print("[red]No files specified for upload[/red]")
             raise click.Abort
             
-        results = []
         total_files = len(files)
         
-        for i, file in enumerate(files, 1):
-            file_path = Path(file)
-            original_filename = file_path.name
+        if not quiet:
+            console.print("Initializing upload process...")
+            # Create progress bar for all files
+            progress = Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            )
             
-            # Generate new filename if random string option is enabled
-            if add_random:
-                upload_filename = add_random_string(original_filename)
-            else:
-                upload_filename = original_filename
-            
-            # Select remote for each file
-            if remote:
-                selected_remote = remote
-                if not quiet and total_files > 1:
-                    console.print(f"[{i}/{total_files}] Using requested remote: [green]{selected_remote}[/green]")
-            else:
-                file_size = file_path.stat().st_size
-                if file_size < 100 * 1024 * 1024:  # < 100MB
-                    selected_remote = select_remote_random()
-                    if not quiet and total_files > 1:
-                        console.print(f"[{i}/{total_files}] File size is <100MB, selecting random remote: [green]{selected_remote}[/green]")
-                else:
-                    selected_remote = await select_remote_most_free()
-                    if not quiet and total_files > 1:
-                        console.print(f"[{i}/{total_files}] Using remote with most free space: [green]{selected_remote}[/green]")
-            
-            if not quiet:
-                if total_files > 1:
-                    console.print(f"[{i}/{total_files}] Initializing upload process for {original_filename}...")
-                else:
-                    console.print("Initializing upload process...")
-                
-                # Create progress bar
-                progress = Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    TaskProgressColumn(),
-                    console=console,
-                )
-                
-                with progress:
-                    task = progress.add_task(f"Uploading {original_filename}...", total=100)
-                    
-                    # Upload file using the API
-                    result = await upload_file_api(
-                        file_path=str(file_path),
-                        remote=selected_remote,
-                        remote_folder=folder,
+            with progress:
+                # Create upload tasks for all files
+                upload_tasks = [
+                    upload_single_file(
+                        file=file,
+                        folder=folder,
+                        add_random=add_random,
+                        quiet=quiet,
+                        remote=remote,
                         chunk_size=chunk_size,
-                        custom_filename=upload_filename if add_random else None
+                        file_index=i,
+                        total_files=total_files,
+                        progress=progress
                     )
-                    
-                    progress.update(task, completed=100)
-            else:
-                # Quiet mode - just upload without progress
-                result = await upload_file_api(
-                    file_path=str(file_path),
-                    remote=selected_remote,
-                    remote_folder=folder,
+                    for i, file in enumerate(files, 1)
+                ]
+                
+                # Run all uploads in parallel
+                results = await asyncio.gather(*upload_tasks)
+        else:
+            # Quiet mode - run uploads in parallel without progress
+            upload_tasks = [
+                upload_single_file(
+                    file=file,
+                    folder=folder,
+                    add_random=add_random,
+                    quiet=quiet,
+                    remote=remote,
                     chunk_size=chunk_size,
-                    custom_filename=upload_filename if add_random else None
+                    file_index=i,
+                    total_files=total_files,
+                    progress=None
                 )
+                for i, file in enumerate(files, 1)
+            ]
             
-            results.append(result)
-            
+            results = await asyncio.gather(*upload_tasks)
+        
+        # Display results
+        for i, result in enumerate(results):
             if quiet:
                 # Only print the download URL in quiet mode
                 print(result.download_url)
@@ -179,8 +219,6 @@ async def upload(
                 console.print(f"[cyan]File:[/cyan] {result.file_name}")
                 console.print(f"[cyan]Size:[/cyan] {result.file_size:,} bytes")
                 console.print(f"[yellow]Download link:[/yellow] [link]{result.download_url}[/link]")
-                if total_files > 1 and i < total_files:
-                    console.print()  # Add spacing between multiple files
         
         if not quiet and total_files > 1:
             console.print(f"\n[green]✓ All {total_files} files uploaded successfully![/green]")
