@@ -64,13 +64,9 @@ async def select_remote_most_free() -> str:
             qty, unit = quota.remaining.replace(',', '').split()[:2]
             factor = {"B":1, "KB":2**10, "MB":2**20, "GB":2**30, "TB":2**40}.get(unit.upper(), 1)
             remaining_val = float(qty) * factor
-            try:
-                remaining_val = float(remaining_str)
-                if remaining_val > max_remaining:
-                    max_remaining = remaining_val
-                    best_remote = remote_name
-            except ValueError:
-                continue
+            if remaining_val > max_remaining:
+                max_remaining = remaining_val
+                best_remote = remote_name
         
         return best_remote
     except Exception:

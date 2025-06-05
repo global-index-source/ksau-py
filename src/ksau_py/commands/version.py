@@ -14,10 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from importlib.metadata import version
+
 from ksau_py import app, console
 
 # Version information
-KSAU_PY_VERSION = "1.0.0"
+KSAU_PY_VERSION = version("ksau-py")
 KSAU_PY_VERSION_STRING = f"ksau-py Version {KSAU_PY_VERSION}"
 
 

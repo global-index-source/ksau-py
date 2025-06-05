@@ -16,6 +16,7 @@
 
 from rich.table import Table
 from rich.panel import Panel
+import aiohttp
 
 from ksau_py import app, console, coro
 from ksau_py.ksau_api import get_system_info, get_neofetch_info

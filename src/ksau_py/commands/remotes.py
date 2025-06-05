@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import aiohttp
 from rich.table import Table
 
 from ksau_py import REMOTES, app, console, coro

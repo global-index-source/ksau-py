@@ -96,8 +96,9 @@ async def upload_file_api(
         data.add_field('remoteFolder', remote_folder)
         data.add_field('chunkSize', str(chunk_size))
         
-        with open(file_path, "rb") as fp:
-            data.add_field("file", fp, filename=filename)
+        async with aiofiles.open(file_path, "rb") as fp:
+            file_content = await fp.read()
+            data.add_field("file", file_content, filename=filename)
             
             async with session.post(url, data=data) as response:
                 if not response.ok:
@@ -138,7 +139,7 @@ async def upload_file_binary(
     }
     
     async with ClientSession() as session:
-        async with aiofiles.open(file_path, 'rb') as f:
+        with open(file_path, 'rb') as f:
             async with session.post(url, headers=headers, data=f) as response:
                 if not response.ok:
                     error_text = await response.text()
