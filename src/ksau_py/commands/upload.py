@@ -79,7 +79,7 @@ async def select_remote_most_free() -> str:
 
 
 @app.command("upload")
-@click.argument("file", type=click.Path(exists=True, dir_okay=False, resolve_path=True))
+@click.argument("files", nargs=-1, type=click.Path(exists=True, dir_okay=False, resolve_path=True), required=True)
 @click.argument("folder", default="", type=str)
 @click.option("-r", "--add-random", is_flag=True, help="Add random string to filename")
 @click.option("-q", "--quiet", is_flag=True, help="Suppress output, only print download link")
@@ -87,61 +87,84 @@ async def select_remote_most_free() -> str:
 @click.option("--chunk-size", type=click.IntRange(2, 32), default=32, help="Chunk size in MB (2-32)")
 @coro
 async def upload(
-    file: str, 
+    files: list[str], 
     folder: str, 
     add_random: bool = False, 
     quiet: bool = False,
     remote: str = None,
     chunk_size: int = 32
 ) -> None:
-    """Upload a file to remote storage.
+    """Upload files to remote storage.
 
     Arguments:
-        file: Path to file to be uploaded
+        files: Paths to files to be uploaded
         folder: Destination folder in remote storage (optional)
     """
     try:
-        file_path = Path(file)
-        original_filename = file_path.name
-        
-        # Generate new filename if random string option is enabled
-        if add_random:
-            upload_filename = add_random_string(original_filename)
-        else:
-            upload_filename = original_filename
-        
-        # Select remote
-        if remote:
-            selected_remote = remote
+        if not files:
             if not quiet:
-                console.print(f"Using requested remote: [green]{selected_remote}[/green]")
-        else:
-            file_size = file_path.stat().st_size
-            if file_size < 100 * 1024 * 1024:  # < 100MB
-                selected_remote = select_remote_random()
-                if not quiet:
-                    console.print(f"File size is <100MB, selecting random remote: [green]{selected_remote}[/green]")
-            else:
-                selected_remote = await select_remote_most_free()
-                if not quiet:
-                    console.print(f"Using remote with most free space: [green]{selected_remote}[/green]")
+                console.print("[red]No files specified for upload[/red]")
+            raise click.Abort
+            
+        results = []
+        total_files = len(files)
         
-        if not quiet:
-            console.print("Initializing upload process...")
+        for i, file in enumerate(files, 1):
+            file_path = Path(file)
+            original_filename = file_path.name
             
-            # Create progress bar
-            progress = Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                console=console,
-            )
+            # Generate new filename if random string option is enabled
+            if add_random:
+                upload_filename = add_random_string(original_filename)
+            else:
+                upload_filename = original_filename
             
-            with progress:
-                task = progress.add_task("Uploading...", total=100)
+            # Select remote for each file
+            if remote:
+                selected_remote = remote
+                if not quiet and total_files > 1:
+                    console.print(f"[{i}/{total_files}] Using requested remote: [green]{selected_remote}[/green]")
+            else:
+                file_size = file_path.stat().st_size
+                if file_size < 100 * 1024 * 1024:  # < 100MB
+                    selected_remote = select_remote_random()
+                    if not quiet and total_files > 1:
+                        console.print(f"[{i}/{total_files}] File size is <100MB, selecting random remote: [green]{selected_remote}[/green]")
+                else:
+                    selected_remote = await select_remote_most_free()
+                    if not quiet and total_files > 1:
+                        console.print(f"[{i}/{total_files}] Using remote with most free space: [green]{selected_remote}[/green]")
+            
+            if not quiet:
+                if total_files > 1:
+                    console.print(f"[{i}/{total_files}] Initializing upload process for {original_filename}...")
+                else:
+                    console.print("Initializing upload process...")
                 
-                # Upload file using the API
+                # Create progress bar
+                progress = Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    console=console,
+                )
+                
+                with progress:
+                    task = progress.add_task(f"Uploading {original_filename}...", total=100)
+                    
+                    # Upload file using the API
+                    result = await upload_file_api(
+                        file_path=str(file_path),
+                        remote=selected_remote,
+                        remote_folder=folder,
+                        chunk_size=chunk_size,
+                        custom_filename=upload_filename if add_random else None
+                    )
+                    
+                    progress.update(task, completed=100)
+            else:
+                # Quiet mode - just upload without progress
                 result = await upload_file_api(
                     file_path=str(file_path),
                     remote=selected_remote,
@@ -149,26 +172,22 @@ async def upload(
                     chunk_size=chunk_size,
                     custom_filename=upload_filename if add_random else None
                 )
-                
-                progress.update(task, completed=100)
-        else:
-            # Quiet mode - just upload without progress
-            result = await upload_file_api(
-                file_path=str(file_path),
-                remote=selected_remote,
-                remote_folder=folder,
-                chunk_size=chunk_size,
-                custom_filename=upload_filename if add_random else None
-            )
+            
+            results.append(result)
+            
+            if quiet:
+                # Only print the download URL in quiet mode
+                print(result.download_url)
+            else:
+                console.print(f"\n[green]✓ Upload completed successfully![/green]")
+                console.print(f"[cyan]File:[/cyan] {result.file_name}")
+                console.print(f"[cyan]Size:[/cyan] {result.file_size:,} bytes")
+                console.print(f"[yellow]Download link:[/yellow] [link]{result.download_url}[/link]")
+                if total_files > 1 and i < total_files:
+                    console.print()  # Add spacing between multiple files
         
-        if quiet:
-            # Only print the download URL in quiet mode
-            print(result.download_url)
-        else:
-            console.print("\n[green]✓ Upload completed successfully![/green]")
-            console.print(f"[cyan]File:[/cyan] {result.file_name}")
-            console.print(f"[cyan]Size:[/cyan] {result.file_size:,} bytes")
-            console.print(f"[yellow]Download link:[/yellow] [link]{result.download_url}[/link]")
+        if not quiet and total_files > 1:
+            console.print(f"\n[green]✓ All {total_files} files uploaded successfully![/green]")
 
     except (KeyboardInterrupt, SystemExit) as e:
         if not quiet:
