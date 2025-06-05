@@ -75,16 +75,16 @@ async def select_remote_most_free() -> str:
 
 
 @app.command("upload")
+@click.argument("folder", type=str)
 @click.argument("files", nargs=-1, type=click.Path(exists=True, dir_okay=False, resolve_path=True), required=True)
-@click.argument("folder", default="", type=str)
 @click.option("-r", "--add-random", is_flag=True, help="Add random string to filename")
 @click.option("-q", "--quiet", is_flag=True, help="Suppress output, only print download link")
 @click.option("-c", "--remote", type=click.Choice(REMOTES), help="Upload to specific remote")
 @click.option("--chunk-size", type=click.IntRange(2, 32), default=32, help="Chunk size in MB (2-32)")
 @coro
 async def upload(
-    files: list[str], 
-    folder: str, 
+    folder: str,
+    files: list[str],
     add_random: bool = False, 
     quiet: bool = False,
     remote: str = None,
@@ -93,8 +93,8 @@ async def upload(
     """Upload files to remote storage.
 
     Arguments:
-        files: Paths to files to be uploaded
         folder: Destination folder in remote storage (optional)
+        files: Paths to files to be uploaded
     """
     try:
         if not files:
